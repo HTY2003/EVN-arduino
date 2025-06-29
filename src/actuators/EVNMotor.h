@@ -489,9 +489,9 @@ private:
 
 			if (pidArg->run_pos)
 			{
-				pidArg->run_dir = (pidArg->end_pos - pos) > 0 ? DIRECT : REVERSE;
+				pidArg->run_dir = (pidArg->end_pos - pidArg->target_pos) > 0 ? DIRECT : REVERSE;
 
-				float error = fabs(pidArg->end_pos - pos);
+				float error = fabs(pidArg->end_pos - pidArg->target_pos);
 
 				if (error < pidArg->max_error_before_decel)
 					decel_dps = fabs(pidArg->target_dps) * sqrt(error / pidArg->max_error_before_decel);
@@ -538,26 +538,16 @@ private:
 						pidArg->target_dps_constrained = signed_target_dps_end_decel;
 				}
 
-				bool old_sign;
-
-				if (pidArg->run_pos)
-					old_sign = pidArg->target_pos > pidArg->end_pos;
-
-				if (!pidArg->run_pos || pidArg->target_pos != pidArg->end_pos)
-					pidArg->target_pos += pidArg->time_since_last_loop * pidArg->target_dps_constrained;
+				pidArg->target_pos += pidArg->time_since_last_loop * pidArg->target_dps_constrained;
 
 				if (pidArg->run_pos)
 				{
-					bool new_sign = pidArg->target_pos > pidArg->end_pos;
-
-					if (old_sign != new_sign)
-					{
+					if ((pidArg->target_dps_constrained > 0 && pidArg->target_pos > pidArg->end_pos)
+					|| (pidArg->target_dps_constrained < 0 && pidArg->target_pos < pidArg->end_pos))
 						pidArg->target_pos = pidArg->end_pos;
-					}
 
 					if (pidArg->target_pos == pidArg->end_pos)
 					{
-
 						if (!pidArg->hit_end)
 						{
 							pidArg->hit_end = true;
@@ -572,9 +562,7 @@ private:
 						}
 					}
 					else
-					{
 						pidArg->hit_end = false;
-					}
 				}
 			}
 			else
@@ -1089,16 +1077,9 @@ private:
 			float target_speed_after_decel = arg->target_speed;
 			float target_turn_rate_after_decel = arg->target_turn_rate;
 
-			//preserve sign of error between target and end distance/angle
-			bool old_sign_distance;
-			bool old_sign_angle;
-
 			//calculate speed & turn rate when motor is coming to a pause
 			if (arg->drive_position)
 			{
-				old_sign_distance = arg->target_distance - arg->end_distance > 0;
-				old_sign_angle = arg->target_angle - arg->end_angle > 0;
-
 				float stop_speed_decel = arg->speed_decel;
 				float stop_turn_rate_decel = arg->turn_rate_decel;
 
@@ -1111,17 +1092,17 @@ private:
 						stop_speed_decel = arg->slowed_speed_decel;
 				}
 
-				//calculate what the current max speed & turn rate should be, based on respective errors
+				//calculate what the current max speed & turn rate should be
 				float error_to_start_decel_speed = arg->target_speed_sq_div_2 / stop_speed_decel;
 				float error_to_start_decel_turn_rate = arg->target_turn_rate_sq_div_2 / stop_turn_rate_decel;
-				float current_distance_error = fabs(arg->end_distance - arg->current_distance);
-				float current_angle_error = fabs(arg->end_angle - arg->current_angle);
+				float distance_error = fabs(arg->end_distance - arg->target_distance);
+				float angle_error = fabs(arg->end_angle - arg->target_angle);
 
-				if (current_distance_error < error_to_start_decel_speed)
-					target_speed_after_decel = arg->target_speed * sqrt(current_distance_error / error_to_start_decel_speed);
+				if (distance_error < error_to_start_decel_speed)
+					target_speed_after_decel = arg->target_speed * sqrt(distance_error / error_to_start_decel_speed);
 
-				if (current_angle_error < error_to_start_decel_turn_rate)
-					target_turn_rate_after_decel = arg->target_turn_rate * sqrt(current_angle_error / error_to_start_decel_turn_rate);
+				if (angle_error < error_to_start_decel_turn_rate)
+					target_turn_rate_after_decel = arg->target_turn_rate * sqrt(angle_error / error_to_start_decel_turn_rate);
 			}
 
 			//increment target angle and XY position
@@ -1240,30 +1221,24 @@ private:
 				}
 
 				//increment/decrement target angle and distance with updated target speed/turn rate values
-				if (!arg->drive_position || arg->target_angle != arg->end_angle)
-					arg->target_angle += arg->time_since_last_loop * arg->target_turn_rate_constrained;
-				if (!arg->drive_position || arg->target_distance != arg->end_distance)
-					arg->target_distance += arg->time_since_last_loop * arg->target_speed_constrained;
+				arg->target_angle += arg->time_since_last_loop * arg->target_turn_rate_constrained;
+				arg->target_distance += arg->time_since_last_loop * arg->target_speed_constrained;
 			}
 
 			if (arg->drive_position)
 			{
-				//compare new sign of error between target and end distance/angle
-				//change in sign means end point has been exceeded (so it should be capped)
-				bool new_sign_distance = arg->target_distance - arg->end_distance > 0;
-				bool new_sign_angle = arg->target_angle - arg->end_angle > 0;
-
-				if (old_sign_distance != new_sign_distance)
+				if ((arg->target_speed_constrained > 0 && arg->target_distance > arg->end_distance)
+				|| (arg->target_speed_constrained < 0 && arg->target_distance < arg->end_distance))
 					arg->target_distance = arg->end_distance;
 
-				if (old_sign_angle != new_sign_angle)
+				if ((arg->target_turn_rate_constrained > 0 && arg->target_angle > arg->end_angle)
+				|| (arg->target_turn_rate_constrained < 0 && arg->target_angle < arg->end_angle))
 					arg->target_angle = arg->end_angle;
 
 				//ideally, we should only stop when both errors are in acceptable range
 				//however, our control scheme might only hit both targets SOME of the time
 				//so we count it as complete when the motor is already targeting the angle and distance endpoints, and either error is acceptable
-				if (arg->target_angle == arg->end_angle
-				&& arg->target_distance == arg->end_distance)
+				if (arg->target_angle == arg->end_angle && arg->target_distance == arg->end_distance)
 				{
 					if (!arg->hit_end)
 					{
@@ -1280,9 +1255,7 @@ private:
 					}
 				}
 				else
-				{
 					arg->hit_end = false;
-				}
 			}
 
 			//angle error -> difference between the robot's current angle and the angle it should travel at
