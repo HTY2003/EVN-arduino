@@ -59,7 +59,7 @@
 #define DRIVEBASE_HOLD_MIN_TIME_US          50000
 #define DRIVEBASE_HOLD_TIMEOUT_US           250000
 
-#define DRIVEBASE_SPEED_ACCEL               10000
-#define DRIVEBASE_SPEED_DECEL               10000
-#define DRIVEBASE_TURN_RATE_ACCEL           10000
-#define DRIVEBASE_TURN_RATE_DECEL           10000
+#define DRIVEBASE_SPEED_ACCEL               1000
+#define DRIVEBASE_SPEED_DECEL               1000
+#define DRIVEBASE_TURN_RATE_ACCEL           1000
+#define DRIVEBASE_TURN_RATE_DECEL           1000
